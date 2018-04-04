@@ -1,0 +1,265 @@
+#include "database.h"
+
+#include <fstream>
+#include <string>
+#include <iostream>
+
+using namespace std;
+
+DataBase::DataBase(char* index){
+	//open the index
+	ifstream ifile(index);
+	string filePath;
+	//get each filepath
+	while (getline(ifile, filePath)){
+		if (!filePath.empty()){
+			//create a new webpage and insert it into the allPages map
+			WebPage *temp = new WebPage(filePath);
+			allPages.insert(pair<string, WebPage*>(filePath, temp));
+		}
+	}
+	//loop through the allPages map and parse each webpage individually
+	for(map<string, WebPage*>::iterator it = allPages.begin(); it != allPages.end(); ++it){
+		it->second->readFile(_map, allPages);
+	}
+}	
+
+DataBase::~DataBase(){
+	//loop through all pages and delete each webpage
+	for(map<string, WebPage*>::iterator it = allPages.begin(); it != allPages.end(); ++it){
+		delete it->second;
+	}
+}
+
+void DataBase::runQuery(char* query, char* output){
+	//open the query and the output files
+	ifstream ifile(query);
+	ofstream ofile(output);
+	string temp, word, page, remaining_string, first, check;
+	stringstream line;
+
+	//while there are words in the query, execute the appropriate command.
+	while (getline(ifile, temp)){
+		//if the line is empty, continue to next query
+		if(temp.empty()){
+			continue;
+		}
+
+		//add the line to a stringstream
+		line << temp;
+
+		//get the first command/word
+		line >> first;
+
+		//if the stringstream is the only word, output all webpages that contain that word
+		if (line.str() == first){
+			//convert the string to lowercase
+			for (unsigned int i = 0; i < first.length(); i++){
+				if (first[i] >= 'A' && first[i] <= 'Z'){
+					first[i] += 32;
+				}
+				word.push_back(first[i]);
+			}
+			//output the size of the set of webpages that contain that word
+			ofile << _map[word].size() << "\n";
+			//iterate through the set of webpages and print their filepaths
+			for (set<WebPage*>::iterator it = _map[word].begin(); it != _map[word].end(); ++it){
+				ofile << ((*it)->getFilePath()) << endl;
+			}
+		}
+		else{
+			//if the word is print
+			if (first == "PRINT"){
+				//get the webpage
+				line >> page;
+				//see if ss has more content
+				line >> check;
+				
+				/*if the input was correct, print the name of the page, and 
+				print the entire page */
+				if (check.size() == 0){
+					ofile << page << "\n";
+					ofile << *allPages[page];
+					check = "";
+				}
+				else{
+					ofile << "Invalid query";
+					check = "";
+				}
+			}
+			//if the word is incoming
+			else if (first == "INCOMING"){
+				//get the webpage
+				line >> page;
+				//see if ss has more content
+				line >> check;
+
+				/*if the input was correct, print the number of pages found
+				and print out each filePath*/
+				if (check.size() == 0){
+					set<string> incoming = allPages[page]->getIncoming();
+					if (incoming.size() != 0){
+						ofile << incoming.size() << "\n";
+						//iterate through the set of incoming links of the webpage and print them out
+						for (set<string>::iterator it = incoming.begin(); it != incoming.end(); ++it){
+							ofile << *it << endl;
+						}
+					}
+					else{
+						ofile << "0" << "\n";
+					}
+					check = "";
+				}
+				else{
+					ofile << "Invalid query";
+					check = "";
+				}
+			}
+			// if the word is outgoing
+			else if (first == "OUTGOING"){
+				//get the webpage
+				line >> page;
+				//check if ss has more content
+				line >> check;
+
+				/*if the input was correct, print the number of pages found
+				and print out each filePath*/
+				if (check.size() == 0){
+					set<string> outgoing = allPages[page]->getOutgoing();
+					if (outgoing.size() != 0){
+						ofile << outgoing.size() << "\n";
+						//iterate through the set of outgoing links of the webpage and print them out
+						for (set<string>::iterator it = outgoing.begin(); it != outgoing.end(); ++it){
+							ofile << *it << "\n";
+						}
+					}
+					else{
+						ofile << "0" << endl;
+					}
+					check = "";
+				}
+				else{
+					ofile << "Invalid query";
+					check = "";
+				}
+			}
+			//if the word is and
+			else if (first == "AND"){
+				//create a temp set of webpage pointers
+				set<WebPage*> temp;
+				//convert the stringstream into a string and intersect the webpages containing the words
+				remaining_string = line.str();
+				temp = intersectWebPage(remaining_string);
+
+				//output the size of the set
+				ofile << temp.size() << "\n";
+
+				//iterate through the set and print the filepaths of the webpages
+				for (set<WebPage*>::iterator it = temp.begin(); it != temp.end(); ++it){
+					ofile << (*it)->getFilePath() << endl;
+				}
+				remaining_string = "";
+			}
+			//if the word is or
+			else if (first == "OR"){
+				//create a temp set of webpage points
+				set<string> temp;
+				//convert the stringstream into a string and make a union of webpages that contain words
+				remaining_string = line.str();
+				temp = unionWebPage(remaining_string);
+
+				//output the size of the set;
+				ofile << temp.size() << "\n";
+
+				//iterate through the set and print the filepaths of the webpages
+				for (set<string>::iterator it = temp.begin(); it != temp.end(); ++it){
+					ofile << *it << endl;
+				}
+				remaining_string = "";
+			}
+			else{
+				ofile << "Invalid query" << endl;
+			}
+		}
+		//reset the word and reset the stringstream
+		line.str(string());
+		line.clear();
+		word = "";
+	}
+}
+
+set<WebPage*> DataBase::intersectWebPage(string remaining_string){
+	set<WebPage*> temp_set;
+	string temp, word, query, first_word;
+	stringstream line;
+
+	//stringstream takes in the "remaining query"
+	line << remaining_string;
+	//get rid of the "AND"
+	line >> query;
+	//take in the first word
+	line >> first_word;
+
+	for (unsigned int i = 0; i < first_word.length(); i++){
+		if (first_word[i] >= 'A' && first_word[i] <= 'Z'){
+			first_word[i] += 32;
+		}
+		word.push_back(first_word[i]);
+	}
+
+	//insert every webpage of the first word into the temp set
+	for (set<WebPage*>::iterator it = _map[word].begin(); it != _map[word].end(); ++it){	
+		temp_set.insert(*it);
+	}
+
+	word = "";
+	//loop through the rest of the stringstream
+	while (line >> temp){
+		for (unsigned int i = 0; i < temp.length(); i++){
+			if (temp[i] >= 'A' && temp[i] <= 'Z'){
+				temp[i] += 32;
+			}
+			word.push_back(temp[i]);
+		}
+		/*loop through the temp set and see if the file can still be found inide of the 
+		set of webpages that contain the new word. If not, erase from the temp set*/
+		for(set<WebPage*>::iterator it = temp_set.begin(); it != temp_set.end(); ){
+			if (_map[word].find(*it) == _map[word].end()){
+				it = temp_set.erase(it);
+			} 
+			else{
+				it++;
+			}
+		}
+		word = "";
+	}
+	return temp_set;
+}
+
+set<string> DataBase::unionWebPage(string remaining_string){
+	stringstream line;
+	string temp, word, query;
+	set<string> temp_set;
+
+	//convert "remining string" into stringstream
+	line << remaining_string;
+	//remove query "OR"
+	line >> query;
+
+	//loop through all of the words
+	while (line >> temp){
+		for (unsigned int i = 0; i < temp.length(); i++){
+			if (temp[i] >= 'A' && temp[i] <= 'Z'){
+				temp[i] += 32;
+			}
+			word.push_back(temp[i]);
+		}
+		/*iterate through the set of webpages that contain that word and push their 
+		filepaths into the temp set.*/
+		for (set<WebPage*>::iterator it = _map[word].begin(); it != _map[word].end(); ++it){
+			temp_set.insert((*it)->getFilePath());
+		}
+		word = "";
+	}
+	return temp_set;
+}
